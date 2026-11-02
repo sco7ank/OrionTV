@@ -1,0 +1,90 @@
+name: Build OrionTV for Apple TV
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-tvos:
+    name: Build unsigned tvOS app
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: yarn
+
+      - name: Enable Yarn
+        run: corepack enable
+
+      - name: Install JavaScript dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Generate Apple TV native project
+        run: |
+          EXPO_TV=1 EXPO_USE_METRO_WORKSPACE_ROOT=1 npx expo prebuild --platform ios --clean
+
+      - name: Show generated Xcode schemes
+        run: |
+          if [ -d "ios/OrionTV.xcworkspace" ]; then
+            xcodebuild -list -workspace ios/OrionTV.xcworkspace
+          elif [ -d "ios/OrionTV.xcodeproj" ]; then
+            xcodebuild -list -project ios/OrionTV.xcodeproj
+          else
+            echo "Expo did not generate the expected OrionTV Xcode workspace/project."
+            find ios -maxdepth 3 -print || true
+            exit 1
+          fi
+
+      - name: Build for generic Apple TV (unsigned)
+        run: |
+          set -o pipefail
+          if [ -d "ios/OrionTV.xcworkspace" ]; then
+            xcodebuild \
+              -workspace ios/OrionTV.xcworkspace \
+              -scheme OrionTV \
+              -configuration Release \
+              -destination 'generic/platform=tvOS' \
+              -derivedDataPath build/DerivedData \
+              CODE_SIGNING_ALLOWED=NO \
+              build
+          else
+            xcodebuild \
+              -project ios/OrionTV.xcodeproj \
+              -scheme OrionTV \
+              -configuration Release \
+              -destination 'generic/platform=tvOS' \
+              -derivedDataPath build/DerivedData \
+              CODE_SIGNING_ALLOWED=NO \
+              build
+          fi
+
+      - name: Package unsigned IPA for re-signing
+        run: |
+          set -e
+          APP_PATH="$(find build/DerivedData/Build/Products -type d -name '*.app' -path '*Release-appletvos*' -print -quit)"
+          if [ -z "$APP_PATH" ]; then
+            echo "No tvOS .app was produced. Available build products:"
+            find build/DerivedData/Build/Products -maxdepth 4 -print || true
+            exit 1
+          fi
+          mkdir -p artifacts/Payload
+          cp -R "$APP_PATH" artifacts/Payload/
+          cd artifacts
+          /usr/bin/zip -qry OrionTV-unsigned.ipa Payload
+          /usr/bin/unzip -l OrionTV-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OrionTV-unsigned-tvOS-IPA
+          path: artifacts/OrionTV-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
