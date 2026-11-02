@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import { useTVEventHandler, HWEvent } from "react-native";
+import { useTVEventHandler, TVEventControl, HWEvent } from "react-native";
 import usePlayerStore from "@/stores/playerStore";
 
 const SEEK_STEP = 20 * 1000; // 快进/快退的时间步长（毫秒）
@@ -16,6 +16,14 @@ export const useTVRemoteHandler = () => {
 
   const controlsTimer = useRef<NodeJS.Timeout | null>(null);
   const fastForwardIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 启用 Siri Remote 触控板的连续滑动事件（pan）
+  useEffect(() => {
+    TVEventControl.enableTVPanGesture();
+    return () => {
+      TVEventControl.disableTVPanGesture();
+    };
+  }, []);
 
   // 重置或启动隐藏控件的定时器
   const resetTimer = useCallback(() => {
@@ -74,6 +82,19 @@ export const useTVRemoteHandler = () => {
       }
 
       resetTimer();
+
+      // Apple TV 触控板滑动会以 pan 事件上报，而不一定是 up/down/left/right
+      if (event.eventType === "pan" && event.body?.state === "Ended") {
+        const { velocityX = 0, velocityY = 0 } = event.body;
+        if (Math.abs(velocityY) > Math.abs(velocityX) && Math.abs(velocityY) > 0.2) {
+          if (velocityY > 0) {
+            setShowControls(true);
+          }
+        } else if (Math.abs(velocityX) > 0.2) {
+          seek(velocityX > 0 ? SEEK_STEP : -SEEK_STEP);
+        }
+        return;
+      }
 
       if (showControls) {
         // 如果控制条已显示，则不处理后台的快进/快退等操作
