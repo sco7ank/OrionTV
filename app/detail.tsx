@@ -51,7 +51,7 @@ export default function DetailScreen() {
     // Keep the built-in player behavior unchanged on iOS/iPadOS/Android.
     if (Platform.isTV) {
       const streamUrl = detail.episodes?.[episodeIndex];
-      if (!streamUrl || !/^https?:\\/\\//i.test(streamUrl)) {
+      if (!streamUrl || !(streamUrl.startsWith("http://") || streamUrl.startsWith("https://"))) {
         Alert.alert("暂时无法播放", "这个播放源没有返回可直接交给 SenPlayer 的 HTTP 视频地址。");
         return;
       }
