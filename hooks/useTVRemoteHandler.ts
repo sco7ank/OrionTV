@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import { useTVEventHandler, TVEventControl, HWEvent } from "react-native";
+import { Dimensions, useTVEventHandler, TVEventControl, HWEvent } from "react-native";
 import usePlayerStore from "@/stores/playerStore";
 
 const SEEK_STEP = 20 * 1000;
@@ -7,10 +7,12 @@ const CONTROLS_TIMEOUT = 5000;
 const PAN_EVENT_GUARD_MS = 700;
 
 export const useTVRemoteHandler = () => {
-  const { showControls, setShowControls, showEpisodeModal, togglePlayPause, seek } = usePlayerStore();
+  const { showControls, setShowControls, showEpisodeModal, togglePlayPause, seek, status, isScrubbing, startScrubbing, updateScrubbing, finishScrubbing } = usePlayerStore();
   const controlsTimer = useRef<NodeJS.Timeout | null>(null);
   const fastForwardIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastPanAtRef = useRef(0);
+  const lastPanXRef = useRef(0);
+  const panScrubActiveRef = useRef(false);
 
   useEffect(() => {
     TVEventControl.enableTVPanGesture();
@@ -45,14 +47,48 @@ export const useTVRemoteHandler = () => {
     // Treat the pan as the source of truth and swallow the duplicate direction event.
     if (event.eventType === "pan") {
       lastPanAtRef.current = Date.now();
-      if (event.body?.state !== "Ended") return;
+      const body = event.body;
+      if (!body) return;
 
-      resetTimer();
-      const { velocityX = 0, velocityY = 0 } = event.body;
-      if (Math.abs(velocityY) > Math.abs(velocityX) && Math.abs(velocityY) > 0.2) {
-        if (velocityY > 0) setShowControls(true);
-      } else if (Math.abs(velocityX) > 0.2 && !showControls) {
-        seek(velocityX > 0 ? SEEK_STEP : -SEEK_STEP);
+      if (body.state === "Began") {
+        lastPanXRef.current = 0;
+        panScrubActiveRef.current = false;
+        return;
+      }
+
+      if (body.state === "Changed") {
+        if (showControls || showEpisodeModal || !status?.isLoaded || !status.durationMillis) return;
+        const x = body.x || 0;
+        const y = body.y || 0;
+
+        // Only claim clearly horizontal gestures; vertical swipes remain UI navigation.
+        if (!panScrubActiveRef.current) {
+          if (Math.abs(x) < 8 || Math.abs(x) <= Math.abs(y)) return;
+          panScrubActiveRef.current = true;
+          lastPanXRef.current = 0;
+          startScrubbing();
+        }
+
+        const deltaX = x - lastPanXRef.current;
+        lastPanXRef.current = x;
+        const speedMultiplier = 1 + Math.min(Math.abs(body.velocityX || 0) / 1600, 1.5);
+        const pixelsPerFullDuration = Dimensions.get("window").width * 2.2;
+        const deltaMillis = deltaX * (status.durationMillis / pixelsPerFullDuration) * speedMultiplier;
+        updateScrubbing(deltaMillis);
+        return;
+      }
+
+      if (body.state === "Ended") {
+        resetTimer();
+        if (panScrubActiveRef.current) {
+          panScrubActiveRef.current = false;
+          finishScrubbing();
+          return;
+        }
+        const { velocityX = 0, velocityY = 0 } = body;
+        if (Math.abs(velocityY) > Math.abs(velocityX) && Math.abs(velocityY) > 0.2) {
+          if (velocityY > 0) setShowControls(true);
+        }
       }
       return;
     }
@@ -74,6 +110,7 @@ export const useTVRemoteHandler = () => {
 
     switch (event.eventType) {
       case "select":
+      case "playPause":
         togglePlayPause();
         setShowControls(true);
         break;
@@ -97,7 +134,7 @@ export const useTVRemoteHandler = () => {
         setShowControls(true);
         break;
     }
-  }, [showControls, showEpisodeModal, setShowControls, resetTimer, togglePlayPause, seek]);
+  }, [showControls, showEpisodeModal, setShowControls, resetTimer, togglePlayPause, seek, status, startScrubbing, updateScrubbing, finishScrubbing]);
 
   useTVEventHandler(handleTVEvent);
 
