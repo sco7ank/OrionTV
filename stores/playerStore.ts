@@ -25,6 +25,8 @@ interface PlayerState {
   showSpeedModal: boolean;
   showNextEpisodeOverlay: boolean;
   isSeeking: boolean;
+  isScrubbing: boolean;
+  scrubPositionMillis: number;
   seekPosition: number;
   progressPosition: number;
   initialPosition: number;
@@ -42,6 +44,10 @@ interface PlayerState {
   playEpisode: (index: number) => void;
   togglePlayPause: () => void;
   seek: (duration: number) => void;
+  startScrubbing: () => void;
+  updateScrubbing: (deltaMillis: number) => void;
+  finishScrubbing: () => Promise<void>;
+  cancelScrubbing: () => void;
   handlePlaybackStatusUpdate: (newStatus: AVPlaybackStatus) => void;
   setLoading: (loading: boolean) => void;
   setShowControls: (show: boolean) => void;
@@ -72,6 +78,8 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
   showSpeedModal: false,
   showNextEpisodeOverlay: false,
   isSeeking: false,
+  isScrubbing: false,
+  scrubPositionMillis: 0,
   seekPosition: 0,
   progressPosition: 0,
   initialPosition: 0,
@@ -272,6 +280,59 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
     }
   },
 
+  startScrubbing: () => {
+    const { status, videoRef } = get();
+    if (!status?.isLoaded || !status.durationMillis) return;
+    if (status.isPlaying) {
+      videoRef?.current?.pauseAsync().catch((error) => logger.debug("Failed to pause before scrubbing:", error));
+    }
+    set({
+      isScrubbing: true,
+      isSeeking: true,
+      scrubPositionMillis: status.positionMillis,
+      seekPosition: status.positionMillis / status.durationMillis,
+    });
+  },
+
+  updateScrubbing: (deltaMillis) => {
+    const { isScrubbing, scrubPositionMillis, status } = get();
+    if (!isScrubbing || !status?.isLoaded || !status.durationMillis) return;
+    const nextPosition = Math.max(0, Math.min(status.durationMillis, scrubPositionMillis + deltaMillis));
+    set({ scrubPositionMillis: nextPosition, seekPosition: nextPosition / status.durationMillis });
+  },
+
+  finishScrubbing: async () => {
+    const { isScrubbing, scrubPositionMillis, status, videoRef, _seekTimeout } = get();
+    if (!isScrubbing || !status?.isLoaded || !status.durationMillis) return;
+    if (_seekTimeout) clearTimeout(_seekTimeout);
+    try {
+      await videoRef?.current?.setPositionAsync(scrubPositionMillis);
+      const timeoutId = setTimeout(() => set({ isSeeking: false }), 1800);
+      set({
+        isScrubbing: false,
+        isSeeking: true,
+        seekPosition: scrubPositionMillis / status.durationMillis,
+        _seekTimeout: timeoutId,
+      });
+    } catch (error) {
+      logger.debug("Failed to finish scrub:", error);
+      set({ isScrubbing: false, isSeeking: false, seekPosition: get().progressPosition });
+      Toast.show({ type: "error", text1: "定位失败" });
+    }
+  },
+
+  cancelScrubbing: () => {
+    const { _seekTimeout, progressPosition } = get();
+    if (_seekTimeout) clearTimeout(_seekTimeout);
+    set({
+      isScrubbing: false,
+      isSeeking: false,
+      scrubPositionMillis: 0,
+      seekPosition: progressPosition,
+      _seekTimeout: undefined,
+    });
+  },
+
   seek: async (duration) => {
     const { status, videoRef } = get();
     if (!status?.isLoaded || !status.durationMillis) return;
@@ -286,6 +347,8 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
 
     set({
       isSeeking: true,
+      isScrubbing: false,
+      scrubPositionMillis: newPosition,
       seekPosition: newPosition / status.durationMillis,
     });
 
@@ -462,6 +525,11 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
       showSourceModal: false,
       showSpeedModal: false,
       showNextEpisodeOverlay: false,
+      isScrubbing: false,
+      isSeeking: false,
+      scrubPositionMillis: 0,
+      seekPosition: 0,
+      progressPosition: 0,
       initialPosition: 0,
       playbackRate: 1.0,
       introEndTime: undefined,
