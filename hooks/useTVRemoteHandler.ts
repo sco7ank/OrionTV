@@ -7,7 +7,7 @@ const CONTROLS_TIMEOUT = 5000;
 const PAN_EVENT_GUARD_MS = 700;
 
 export const useTVRemoteHandler = () => {
-  const { showControls, setShowControls, showEpisodeModal, togglePlayPause, seek, status, isScrubbing, startScrubbing, updateScrubbing, finishScrubbing } = usePlayerStore();
+  const { showControls, setShowControls, showEpisodeModal, togglePlayPause, seek, status, startScrubbing, updateScrubbing, finishScrubbing } = usePlayerStore();
   const controlsTimer = useRef<NodeJS.Timeout | null>(null);
   const fastForwardIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastPanAtRef = useRef(0);
@@ -57,7 +57,7 @@ export const useTVRemoteHandler = () => {
       }
 
       if (body.state === "Changed") {
-        if (showControls || showEpisodeModal || !status?.isLoaded || !status.durationMillis) return;
+        if (showEpisodeModal || !status?.isLoaded || !status.durationMillis) return;
         const x = body.x || 0;
         const y = body.y || 0;
 
