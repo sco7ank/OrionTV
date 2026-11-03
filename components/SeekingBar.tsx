@@ -15,18 +15,18 @@ const formatTime = (milliseconds: number) => {
 };
 
 export const SeekingBar = () => {
-  const { isSeeking, seekPosition, status, showControls } = usePlayerStore();
+  const { isSeeking, isScrubbing, scrubPositionMillis, seekPosition, status, showControls } = usePlayerStore();
 
   // The full player controls already contain a timeline; never render a second one.
-  if (!isSeeking || !status?.isLoaded || showControls) return null;
+  if ((!isSeeking && !isScrubbing) || !status?.isLoaded || showControls) return null;
 
   const durationMillis = status.durationMillis || 0;
-  const currentPositionMillis = seekPosition * durationMillis;
+  const currentPositionMillis = isScrubbing ? scrubPositionMillis : seekPosition * durationMillis;
 
   return (
     <View style={styles.seekingContainer}>
       <Text style={styles.timeText}>
-        {formatTime(currentPositionMillis)} / {formatTime(durationMillis)}
+        {isScrubbing ? "定位中  " : ""}{formatTime(currentPositionMillis)} / {formatTime(durationMillis)}
       </Text>
       <View style={styles.seekingBarContainer}>
         <View style={styles.seekingBarBackground} />
