@@ -2,152 +2,109 @@ import { useEffect, useRef, useCallback } from "react";
 import { useTVEventHandler, TVEventControl, HWEvent } from "react-native";
 import usePlayerStore from "@/stores/playerStore";
 
-const SEEK_STEP = 20 * 1000; // 快进/快退的时间步长（毫秒）
-
-// 定时器延迟时间（毫秒）
+const SEEK_STEP = 20 * 1000;
 const CONTROLS_TIMEOUT = 5000;
+const PAN_EVENT_GUARD_MS = 700;
 
-/**
- * 管理播放器控件的显示/隐藏、遥控器事件和自动隐藏定时器。
- * @returns onScreenPress - 一个函数，用于处理屏幕点击事件，以显示控件并重置定时器。
- */
 export const useTVRemoteHandler = () => {
   const { showControls, setShowControls, showEpisodeModal, togglePlayPause, seek } = usePlayerStore();
-
   const controlsTimer = useRef<NodeJS.Timeout | null>(null);
   const fastForwardIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastPanAtRef = useRef(0);
 
-  // 启用 Siri Remote 触控板的连续滑动事件（pan）
   useEffect(() => {
     TVEventControl.enableTVPanGesture();
-    return () => {
-      TVEventControl.disableTVPanGesture();
-    };
+    return () => TVEventControl.disableTVPanGesture();
   }, []);
 
-  // 重置或启动隐藏控件的定时器
   const resetTimer = useCallback(() => {
-    // 清除之前的定时器
-    if (controlsTimer.current) {
-      clearTimeout(controlsTimer.current);
-    }
-    // 设置新的定时器
-    controlsTimer.current = setTimeout(() => {
-      setShowControls(false);
-    }, CONTROLS_TIMEOUT);
+    if (controlsTimer.current) clearTimeout(controlsTimer.current);
+    controlsTimer.current = setTimeout(() => setShowControls(false), CONTROLS_TIMEOUT);
   }, [setShowControls]);
 
-  // 当控件显示时，启动定时器
   useEffect(() => {
     if (showControls) {
       resetTimer();
-    } else {
-      // 如果控件被隐藏，清除定时器
-      if (controlsTimer.current) {
-        clearTimeout(controlsTimer.current);
-      }
+    } else if (controlsTimer.current) {
+      clearTimeout(controlsTimer.current);
+      controlsTimer.current = null;
     }
-
-    // 组件卸载时清除定时器
     return () => {
-      if (controlsTimer.current) {
-        clearTimeout(controlsTimer.current);
-      }
+      if (controlsTimer.current) clearTimeout(controlsTimer.current);
     };
   }, [showControls, resetTimer]);
 
-  // 组件卸载时清除快进定时器
-  useEffect(() => {
-    return () => {
-      if (fastForwardIntervalRef.current) {
-        clearInterval(fastForwardIntervalRef.current);
-      }
-    };
+  useEffect(() => () => {
+    if (fastForwardIntervalRef.current) clearInterval(fastForwardIntervalRef.current);
   }, []);
 
-  // 处理遥控器事件
-  const handleTVEvent = useCallback(
-    (event: HWEvent) => {
-      if (showEpisodeModal) {
-        return;
-      }
+  const handleTVEvent = useCallback((event: HWEvent) => {
+    if (showEpisodeModal) return;
 
-      if (event.eventType === "longRight" || event.eventType === "longLeft") {
-        if (event.eventKeyAction === 1) {
-          if (fastForwardIntervalRef.current) {
-            clearInterval(fastForwardIntervalRef.current);
-            fastForwardIntervalRef.current = null;
-          }
-        }
-      }
+    // tvOS may emit both a continuous pan and a directional event for one swipe.
+    // Treat the pan as the source of truth and swallow the duplicate direction event.
+    if (event.eventType === "pan") {
+      lastPanAtRef.current = Date.now();
+      if (event.body?.state !== "Ended") return;
 
       resetTimer();
+      const { velocityX = 0, velocityY = 0 } = event.body;
+      if (Math.abs(velocityY) > Math.abs(velocityX) && Math.abs(velocityY) > 0.2) {
+        if (velocityY > 0) setShowControls(true);
+      } else if (Math.abs(velocityX) > 0.2 && !showControls) {
+        seek(velocityX > 0 ? SEEK_STEP : -SEEK_STEP);
+      }
+      return;
+    }
 
-      // Apple TV 触控板滑动会以 pan 事件上报，而不一定是 up/down/left/right
-      if (event.eventType === "pan" && event.body?.state === "Ended") {
-        const { velocityX = 0, velocityY = 0 } = event.body;
-        if (Math.abs(velocityY) > Math.abs(velocityX) && Math.abs(velocityY) > 0.2) {
-          if (velocityY > 0) {
-            setShowControls(true);
-          }
-        } else if (Math.abs(velocityX) > 0.2) {
-          seek(velocityX > 0 ? SEEK_STEP : -SEEK_STEP);
+    if (["up", "down", "left", "right"].includes(event.eventType) &&
+        Date.now() - lastPanAtRef.current < PAN_EVENT_GUARD_MS) {
+      return;
+    }
+
+    if (event.eventType === "longRight" || event.eventType === "longLeft") {
+      if (event.eventKeyAction === 1 && fastForwardIntervalRef.current) {
+        clearInterval(fastForwardIntervalRef.current);
+        fastForwardIntervalRef.current = null;
+      }
+    }
+
+    resetTimer();
+    if (showControls) return;
+
+    switch (event.eventType) {
+      case "select":
+        togglePlayPause();
+        setShowControls(true);
+        break;
+      case "left":
+        seek(-SEEK_STEP);
+        break;
+      case "right":
+        seek(SEEK_STEP);
+        break;
+      case "longLeft":
+        if (!fastForwardIntervalRef.current && event.eventKeyAction === 0) {
+          fastForwardIntervalRef.current = setInterval(() => seek(-SEEK_STEP), 200);
         }
-        return;
-      }
-
-      if (showControls) {
-        // 如果控制条已显示，则不处理后台的快进/快退等操作
-        // 避免与控制条上的按钮焦点冲突
-        return;
-      }
-
-      switch (event.eventType) {
-        case "select":
-          togglePlayPause();
-          setShowControls(true);
-          break;
-        case "left":
-          seek(-SEEK_STEP); // 快退15秒
-          break;
-        case "longLeft":
-          if (!fastForwardIntervalRef.current && event.eventKeyAction === 0) {
-            fastForwardIntervalRef.current = setInterval(() => {
-              seek(-SEEK_STEP); 
-            }, 200);
-          }
-          break;
-        case "right":
-          seek(SEEK_STEP);
-          break;
-        case "longRight":
-          // 长按开始: 启动连续快进
-          if (!fastForwardIntervalRef.current && event.eventKeyAction === 0) {
-            fastForwardIntervalRef.current = setInterval(() => {
-              seek(SEEK_STEP); 
-            }, 200);
-          }
-          break;
-        case "down":
-          setShowControls(true);
-          break;
-      }
-    },
-    [showControls, showEpisodeModal, setShowControls, resetTimer, togglePlayPause, seek]
-  );
+        break;
+      case "longRight":
+        if (!fastForwardIntervalRef.current && event.eventKeyAction === 0) {
+          fastForwardIntervalRef.current = setInterval(() => seek(SEEK_STEP), 200);
+        }
+        break;
+      case "down":
+        setShowControls(true);
+        break;
+    }
+  }, [showControls, showEpisodeModal, setShowControls, resetTimer, togglePlayPause, seek]);
 
   useTVEventHandler(handleTVEvent);
 
-  // 处理屏幕点击事件
   const onScreenPress = () => {
-    // 切换控件的显示状态
-    const newShowControls = !showControls;
-    setShowControls(newShowControls);
-
-    // 如果控件变为显示状态，则重置定时器
-    if (newShowControls) {
-      resetTimer();
-    }
+    const next = !showControls;
+    setShowControls(next);
+    if (next) resetTimer();
   };
 
   return { onScreenPress };
