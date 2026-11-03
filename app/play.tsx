@@ -177,6 +177,11 @@ export default function PlayScreen() {
 
   useEffect(() => {
     const backAction = () => {
+      const playerState = usePlayerStore.getState();
+      if (playerState.isScrubbing) {
+        playerState.cancelScrubbing();
+        return true;
+      }
       if (showControls) {
         setShowControls(false);
         return true;
@@ -214,9 +219,10 @@ export default function PlayScreen() {
   }
 
   return (
-    <ThemedView focusable style={dynamicStyles.container}>
+    <ThemedView style={dynamicStyles.container}>
       <TouchableOpacity
         activeOpacity={1}
+        focusable={false}
         style={dynamicStyles.videoContainer}
         onPress={onScreenPress}
         disabled={deviceType !== "tv" && showControls} // 移动端和平板端在显示控制条时禁用触摸
