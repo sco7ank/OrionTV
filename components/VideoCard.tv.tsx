@@ -55,7 +55,8 @@ const VideoCard = forwardRef<View, VideoCardProps>(
 
     const scale = useRef(new Animated.Value(1)).current;
 
-    const deviceType = useResponsiveLayout().deviceType;
+    const responsiveConfig = useResponsiveLayout();
+    const { deviceType, cardWidth, cardHeight } = responsiveConfig;
 
     const animatedStyle = {
       transform: [{ scale }],
@@ -158,6 +159,7 @@ const VideoCard = forwardRef<View, VideoCardProps>(
           onBlur={handleBlur}
           style={({ pressed }) => [
             styles.pressable,
+            { width: cardWidth, height: cardHeight + 60 },
             {
               zIndex: pressed ? 999 : 1, // 确保按下时有最高优先级
             },
@@ -165,7 +167,7 @@ const VideoCard = forwardRef<View, VideoCardProps>(
           // activeOpacity={1}
           delayLongPress={1000}
         >
-          <View style={styles.card}>
+          <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
             <Image source={{ uri: api.getImageProxyUrl(poster) }} style={styles.poster} />
             {isFocused && (
               <View style={styles.overlay}>
@@ -202,7 +204,7 @@ const VideoCard = forwardRef<View, VideoCardProps>(
               </View>
             )}
           </View>
-          <View style={styles.infoContainer}>
+          <View style={[styles.infoContainer, { width: cardWidth }]}>
             <ThemedText numberOfLines={1}>{title}</ThemedText>
             {isContinueWatching && (
               <View style={styles.infoRow}>
