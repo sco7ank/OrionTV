@@ -19,6 +19,8 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({ showControls, se
     episodes,
     status,
     isSeeking,
+    isScrubbing,
+    scrubPositionMillis,
     seekPosition,
     progressPosition,
     playbackRate,
@@ -82,7 +84,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({ showControls, se
 
         <ThemedText style={{ color: "white", marginTop: 5 }}>
           {status?.isLoaded
-            ? `${formatTime(status.positionMillis)} / ${formatTime(status.durationMillis || 0)}`
+            ? `${formatTime(isScrubbing ? scrubPositionMillis : isSeeking ? seekPosition * (status.durationMillis || 0) : status.positionMillis)} / ${formatTime(status.durationMillis || 0)}`
             : "00:00 / 00:00"}
         </ThemedText>
 
