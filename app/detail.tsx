@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
-import { View, Text, StyleSheet, Image, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, Image, ScrollView, ActivityIndicator, Alert, Platform } from "react-native";
+import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ThemedView } from "@/components/ThemedView";
 import { ThemedText } from "@/components/ThemedText";
@@ -43,8 +44,32 @@ export default function DetailScreen() {
     };
   }, [abort, init, q, source, id]);
 
-  const handlePlay = (episodeIndex: number) => {
+  const handlePlay = async (episodeIndex: number) => {
     if (!detail) return;
+
+    // Apple TV: hand the resolved stream directly to SenPlayer.
+    // Keep the built-in player behavior unchanged on iOS/iPadOS/Android.
+    if (Platform.isTV) {
+      const streamUrl = detail.episodes?.[episodeIndex];
+      if (!streamUrl || !/^https?:\\/\\//i.test(streamUrl)) {
+        Alert.alert("暂时无法播放", "这个播放源没有返回可直接交给 SenPlayer 的 HTTP 视频地址。");
+        return;
+      }
+
+      const senPlayerUrl =
+        "senplayer://x-callback-url/play?url=" + encodeURIComponent(streamUrl);
+
+      try {
+        await Linking.openURL(senPlayerUrl);
+      } catch (error) {
+        Alert.alert(
+          "无法打开 SenPlayer",
+          "请确认 Apple TV 已安装 SenPlayer，并更新到支持 URL Scheme 播放的版本。"
+        );
+      }
+      return;
+    }
+
     abort(); // Cancel any ongoing fetches
     router.push({
       pathname: "/play",
