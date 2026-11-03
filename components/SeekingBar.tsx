@@ -3,28 +3,22 @@ import { View, StyleSheet, Text } from "react-native";
 import usePlayerStore from "@/stores/playerStore";
 
 const formatTime = (milliseconds: number) => {
-  if (isNaN(milliseconds) || milliseconds < 0) {
-    return "00:00";
-  }
+  if (isNaN(milliseconds) || milliseconds < 0) return "00:00";
   const totalSeconds = Math.floor(milliseconds / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-
   if (hours > 0) {
-    return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds
-      .toString()
-      .padStart(2, "0")}`;
+    return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   }
   return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
 };
 
 export const SeekingBar = () => {
-  const { isSeeking, seekPosition, status } = usePlayerStore();
+  const { isSeeking, seekPosition, status, showControls } = usePlayerStore();
 
-  if (!isSeeking || !status?.isLoaded) {
-    return null;
-  }
+  // The full player controls already contain a timeline; never render a second one.
+  if (!isSeeking || !status?.isLoaded || showControls) return null;
 
   const durationMillis = status.durationMillis || 0;
   const currentPositionMillis = seekPosition * durationMillis;
@@ -36,14 +30,7 @@ export const SeekingBar = () => {
       </Text>
       <View style={styles.seekingBarContainer}>
         <View style={styles.seekingBarBackground} />
-        <View
-          style={[
-            styles.seekingBarFilled,
-            {
-              width: `${seekPosition * 100}%`,
-            },
-          ]}
-        />
+        <View style={[styles.seekingBarFilled, { width: `${seekPosition * 100}%` }]} />
       </View>
     </View>
   );
@@ -70,12 +57,12 @@ const styles = StyleSheet.create({
   seekingBarContainer: {
     width: "100%",
     height: 5,
-    backgroundColor: "rgba(255, 255, 255, 0.3)",
+    backgroundColor: "rgba(255,255,255,0.3)",
     borderRadius: 2.5,
   },
   seekingBarBackground: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255, 255, 255, 0.3)",
+    backgroundColor: "rgba(255,255,255,0.3)",
     borderRadius: 2.5,
   },
   seekingBarFilled: {
